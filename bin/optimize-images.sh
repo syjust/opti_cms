@@ -50,11 +50,12 @@ function usage() {
     echo "USAGE : $0 [OPTIONS] [PATH_OR_FILE]"
     echo
     echo "WHERE OPTIONS are :"
-    echo "-h|--help      print this message and exit"
-    echo "-t|--test      dry run (do not apply changes) - NOT YET ALREADY IMPLEMENTED"
-    echo "-f|--force     force overwrite already existing images - NOT YET ALREADY IMPLEMENTED"
-    echo "-d|--debug     debug mode (very verbose) - NOT YET ALREADY IMPLEMENTED"
-    echo "-b|--benchmark test series of compression on a single file (single file arg is required)"
+    echo "-h|--help            print this message and exit"
+    echo "-t|--test            dry run (do not apply changes) - NOT YET ALREADY IMPLEMENTED"
+    echo "-F|--force           force overwrite already existing images - NOT YET ALREADY IMPLEMENTED"
+    echo "-f|--result-as-file  change multidirectory benchmark result as file list"
+    echo "-d|--debug           debug mode (very verbose) - NOT YET ALREADY IMPLEMENTED"
+    echo "-b|--benchmark       test series of compression on a single file (single file arg is required)"
     echo
     echo "AND WEHRE PATH_OR_FILE can be :"
     echo "  * a single folder"
@@ -65,9 +66,15 @@ function usage() {
     echo
 }
 
+#
+# display debug if debug enabled
+# @return bool (true if debug activated / false if not)
+#
 function debug() {
     if [ $DEBUG -eq 1 ] ; then
         echo -e "DEBUG: $1"
+    else
+        return 1
     fi
 }
 
@@ -82,13 +89,15 @@ TEST=0
 DEBUG=0
 BENCHMARK=0
 FORCE=0
+RESULT_AS_FILE=0
 while [ ! -z $1 -a "x-" == "x${1:0:1}" ] ; do
     case $1 in
-        -h|--help)      usage       ; exit 0 ;;
-        -t|--test)      TEST=1      ; shift ;;
-        -d|--debug)     DEBUG=1     ; shift ;;
-        -f|--force)     FORCE=1     ; shift ;;
-        -b|--benchmark) BENCHMARK=1 ; shift ;;
+        -h|--help)            usage             ; exit 0 ;;
+        -t|--test)            TEST=1            ; shift ;;
+        -d|--debug)           DEBUG=1           ; shift ;;
+        -F|--force)           FORCE=1           ; shift ;;
+        -b|--benchmark)       BENCHMARK=1       ; shift ;;
+        -f|--result-as-file)  RESULT_AS_FILE=1  ; shift ;;
         *) quit "'$1' bad argument" ;;
     esac
 done
@@ -98,6 +107,13 @@ if [ ! -z "$1" ] ; then
 else
 	PATHES="$default_path"
 fi
+
+export TEST
+export DEBUG
+export BENCHMARK
+export FORCE
+export RESULT_AS_FILE
+export PATHES
 
 ##################
 # Test Functions #
@@ -230,6 +246,22 @@ function benchIt() {
             fi
         fi
     done
+    return 0
+}
+
+function resultAsFile() {
+    local rootdir="$1"
+    local filepath="$2"
+    local dir="`dirname ${filepath/$rootdir\//}`"
+    if [ -z "$dir" -o "x$dir" == "x." ] ; then
+        debug "resultAsFile : no subdir found for $filepath : nothing todo"
+    else
+        local file="`basename $filepath`"
+        local ext="${file##*.}"
+        local target="$rootdir/${file/.$ext/-${dir}.$ext}"
+        debug "resultAsFile : mv '$filepath' '$target'" || mv $filepath $target
+    fi
+    return 0
 }
 
 export -f optimize
@@ -237,6 +269,7 @@ export -f jpgIze
 export -f pngIze
 export -f optimIt
 export -f benchIt
+export -f resultAsFile
 
 ################
 # START SCRIPT #
@@ -250,6 +283,13 @@ if [ $BENCHMARK -eq 1 ] ; then
     # launch default as jpg even if it's a png because it will be launched as well in fine.
     echo "BENCHMARK on '$PATHES'"
     optimize jpg "$PATHES"
+    if [ $RESULT_AS_FILE -eq 1 ] ; then
+        # make bench results as file
+        for i in png_cmd jpg_cmd ; do
+            [ -d $i ] \
+                && find $i -type f -exec bash -c 'resultAsFile "$0" "$1"' $i {} \;
+        done
+    fi
 else
     for path in $PATHES ; do
         find $path -iname "*jpg" -exec bash -c 'optimize "$0" "$1"' jpg {} \;
