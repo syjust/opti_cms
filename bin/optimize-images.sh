@@ -53,6 +53,7 @@ function usage() {
     echo "-h|--help            print this message and exit"
     echo "-t|--test            dry run (do not apply changes) - NOT YET ALREADY IMPLEMENTED"
     echo "-F|--force           force overwrite already existing images - NOT YET ALREADY IMPLEMENTED"
+    echo "-v|--verbose         be more verbose"
     echo "-f|--result-as-file  change multidirectory benchmark result as file list"
     echo "-d|--debug           debug mode (very verbose) - NOT YET ALREADY IMPLEMENTED"
     echo "-b|--benchmark       test series of compression on a single file (single file arg is required)"
@@ -64,6 +65,19 @@ function usage() {
     echo "  * a list of file"
     echo "Default is current folder : $default_path"
     echo
+}
+
+function verbose() {
+    [ "x$VERBOSE" != "x" ]
+}
+
+#
+# display output prefixed by date only if VERBOSE is actived
+#
+function log() {
+    if (verbose) ; then
+        echo -e "`date "+%Y:%m:%d %H:%M:%S"` : $@"
+    fi
 }
 
 #
@@ -81,6 +95,8 @@ function debug() {
 export -f quit
 export -f usage
 export -f debug
+export -f log
+export -f verbose
 
 ################################
 # ARGUMENTS (OPTIONS & PATHES) #
@@ -90,12 +106,14 @@ DEBUG=0
 BENCHMARK=0
 FORCE=0
 RESULT_AS_FILE=0
+VERBOSE=""
 while [ ! -z $1 -a "x-" == "x${1:0:1}" ] ; do
     case $1 in
         -h|--help)            usage             ; exit 0 ;;
         -t|--test)            TEST=1            ; shift ;;
         -d|--debug)           DEBUG=1           ; shift ;;
         -F|--force)           FORCE=1           ; shift ;;
+        -v|--verbose)         VERBOSE="-v"      ; shift ;;
         -b|--benchmark)       BENCHMARK=1       ; shift ;;
         -f|--result-as-file)  RESULT_AS_FILE=1  ; shift ;;
         *) quit "'$1' bad argument" ;;
@@ -112,6 +130,7 @@ export TEST
 export DEBUG
 export BENCHMARK
 export FORCE
+export VERBOSE
 export RESULT_AS_FILE
 export PATHES
 
@@ -202,10 +221,16 @@ function optimIt() {
 	local file="$3"
     local f=`egrep "$file:....-..-..:(jpg|png):optim:$opt$" $OPTIMIZED_FILE_NAME`
     if [ ! -z "$f" ] ; then
-        echo "$f" \
-            | sed 's/^\(.*\):\(....-..-..\):\(jpg\|png\):optim:\('"$opt"'\)$/file "\1" already optimized at "\2" as "\3" fileType with following options "\4"./'
+        log "`echo "$f" | sed 's/^\(.*\):\(....-..-..\):\(jpg\|png\):optim:\('"$opt"'\)$/file "\1" already optimized at "\2" as "\3" fileType with following options "\4"./'`"
     else
-        $cmd $opt "$file" && echo "$file:`date "+%Y-%m-%d"`:${1%%_*}:optim:$opt" >> $OPTIMIZED_FILE_NAME
+        if (verbose) ; then
+            $cmd $opt "$file"
+        else
+            $cmd $opt "$file" > /dev/null 2>&1
+        fi
+        if [ $? -eq 0 ] ; then
+            echo "$file:`date "+%Y-%m-%d"`:${1%%_*}:optim:$opt" >> $OPTIMIZED_FILE_NAME
+        fi
     fi
 }
 
@@ -224,13 +249,16 @@ function benchIt() {
     for opts in $options ; do
         f=`egrep "$file:....-..-..:(jpg|png):bench:$opts$" $OPTIMIZED_FILE_NAME`
         if [ ! -z "$f" ] ; then
-            echo "$f" \
-                | sed 's/^\(.*\):\(....-..-..\):\(jpg\|png\):bench:\('"$opts"'\)$/file "\1" already benchmarked at "\2" as "\3" fileType with following options "\4"./'
+            log "`echo "$f" | sed 's/^\(.*\):\(....-..-..\):\(jpg\|png\):bench:\('"$opts"'\)$/file "\1" already benchmarked at "\2" as "\3" fileType with following options "\4"./'`"
         else
             dest="$1/`echo "${opts}" | sed 's/\(-\|=\|%1\)//g;s/_$//'`"
-            [ ! -d "$dest" ] && mk=1 && mkdir -p $dest
+            [ ! -d "$dest" ] && mk=1 && mkdir -p $VERBOSE $dest
             opt="`echo "${opts//_/ }" | sed 's#%1#'"$dest"'#'`"
-            $cmd $opt "$file"
+            if (verbose) ; then
+                $cmd $opt "$file"
+            else
+                $cmd $opt "$file" > /dev/null 2>&1
+            fi
             ret=$?
             if [ $ret -eq 0 ] ; then
                 echo "$file:`date "+%Y-%m-%d"`:${1%%_*}:bench:$opts" >> $OPTIMIZED_FILE_NAME
@@ -239,7 +267,7 @@ function benchIt() {
                 if [ $mk -eq 1 ] ; then
                     for d in $dest $1 ; do
                         # test if dir is empty, then remove it
-                        [ "$(ls -A $d)" ] || rm -r $d
+                        [ "$(ls -A $d)" ] || rm -r $VERBOSE $d
                     done
                 fi
                 return $ret
@@ -259,7 +287,7 @@ function resultAsFile() {
         local file="`basename $filepath`"
         local ext="${file##*.}"
         local target="$rootdir/${file/.$ext/-${dir}.$ext}"
-        debug "resultAsFile : mv '$filepath' '$target'" || mv $filepath $target
+        debug "resultAsFile : mv $VERBOSE '$filepath' '$target' (NOT APPLIED)" || mv $VERBOSE $filepath $target
     fi
     return 0
 }
